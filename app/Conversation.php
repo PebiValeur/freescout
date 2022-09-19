@@ -194,6 +194,11 @@ class Conversation extends Model
     public static $starred_conversation_ids = [];
 
     /**
+     * Cache of the app.custom_number option.
+     */
+    public static $custom_number_cache = null;
+
+    /**
      * Automatically converted into Carbon dates.
      */
     protected $dates = ['created_at', 'updated_at', 'last_reply_at', 'closed_at', 'user_updated_at'];
@@ -202,6 +207,13 @@ class Conversation extends Model
      * Attributes which are not fillable using fill() method.
      */
     protected $guarded = ['id', 'folder_id'];
+
+    /**
+     * Default values.
+     */
+    protected $attributes = [
+        'preview' => '',
+    ];
 
     protected static function boot()
     {
@@ -558,6 +570,15 @@ class Conversation extends Model
             default:
                 return '';
                 break;
+        }
+    }
+
+    public function getStatus()
+    {
+        if (array_key_exists($this->status, self::$statuses)) {
+            return $this->status;
+        } else {
+            return self::STATUS_ACTIVE;
         }
     }
 
@@ -1601,6 +1622,20 @@ class Conversation extends Model
         return $viewers;
     }
 
+    public function changeState($new_state, $user = null)
+    {
+        if (!array_key_exists($new_state, self::$states)) {
+            return;
+        }
+        
+        $prev_state = $this->state;
+
+        $this->state = $new_state;
+        $this->save();
+
+        \Eventy::action('conversation.state_changed', $this, $user, $prev_state);
+    }
+
     public function changeStatus($new_status, $user, $create_thread = true)
     {
         if (!array_key_exists($new_status, self::$statuses)) {
@@ -1665,6 +1700,7 @@ class Conversation extends Model
     {
         $folder_id = $this->getCurrentFolder();
 
+        $prev_state = $this->state;
         $this->state = Conversation::STATE_DELETED;
         $this->user_updated_at = date('Y-m-d H:i:s');
         $this->updateFolder();
@@ -1692,6 +1728,7 @@ class Conversation extends Model
         $this->mailbox->updateFoldersCounters();
 
         \Eventy::action('conversation.deleted', $this, $user);
+        \Eventy::action('conversation.state_changed', $this, $user, $prev_state);
     }
 
     public function deleteForever()
@@ -2058,7 +2095,7 @@ class Conversation extends Model
             $query_conversations->where(function ($query) use ($like, $filters, $q) {
                 $query->where('conversations.subject', 'like', $like)
                     ->orWhere('conversations.customer_email', 'like', $like)
-                    ->orWhere('conversations.number', (int)$q)
+                    ->orWhere('conversations.'.self::numberFieldName(), (int)$q)
                     ->orWhere('conversations.id', (int)$q)
                     ->orWhere('threads.body', 'like', $like)
                     ->orWhere('threads.from', 'like', $like)
@@ -2114,7 +2151,7 @@ class Conversation extends Model
             $query_conversations->where('threads.body', 'like', '%'.mb_strtolower($filters['body']).'%');
         }
         if (!empty($filters['number'])) {
-            $query_conversations->where('conversations.number', '=', $filters['number']);
+            $query_conversations->where('conversations.'.self::numberFieldName(), '=', $filters['number']);
         }
         if (!empty($filters['following'])) {
             if ($filters['following'] == 'yes') {
@@ -2146,6 +2183,30 @@ class Conversation extends Model
         $query_conversations->orderBy('conversations.last_reply_at', 'DESC');
 
         return $query_conversations;
+    }
+
+    public function getNumberAttribute($value)
+    {
+        if (self::$custom_number_cache === null) {
+            self::$custom_number_cache = config('app.custom_number');
+        }
+        if (self::$custom_number_cache) {
+            return $value;
+        } else {
+            return $this->id;
+        }
+    }
+
+    public static function numberFieldName()
+    {
+        if (self::$custom_number_cache === null) {
+            self::$custom_number_cache = config('app.custom_number');
+        }
+        if (self::$custom_number_cache) {
+            return 'number';
+        } else {
+            return 'id';
+        }
     }
 
     // /**
