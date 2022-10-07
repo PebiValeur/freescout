@@ -21,12 +21,12 @@ composer.phar
 .DS_Store
 Thumbs.db
 #/.htaccess
-/public/css/builds/
+#/public/css/builds/
 /public/js/builds/
 /public/.well-known
-/Modules
+#/Modules
 /Modules/**/.git
-/public/modules
+#/public/modules
 /public/docs
 /storage/.ignore_locales
 /storage/.installed
